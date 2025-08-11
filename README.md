@@ -2,7 +2,7 @@
 
 A powerful Slack bot that automatically detects, formats, and displays tabular data (CSV, TSV, etc.) into clean, scrollable snippets — no manual formatting required.
 
-<img src="./docs/demo.png" alt="Demo of Table Beautifier in action">
+<img src="./docs/demo.png" alt="Demo of Table Beautifier in action" width="250px">
 
 ---
 
