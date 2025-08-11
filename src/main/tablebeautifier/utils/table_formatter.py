@@ -1,3 +1,5 @@
+# /src/main/tablebeautifier/utils/table_formatter.py
+
 import io
 import re
 import pandas as pd
@@ -275,7 +277,7 @@ class TableFormatter:
                 cleaned = df[col].astype(str).str.strip().replace({"": pd.NA})
                 # if many cells contain digits with commas, remove commas for conversion
                 if cleaned.str.contains(r"\d,\d").any():
-                    candidate = cleaned.str.replace(",", "", regex=True)
+                    candidate = cleaned.str_replace(",", "", regex=True) if hasattr(cleaned, "str_replace") else cleaned.str.replace(",", "", regex=True)
                 else:
                     candidate = cleaned
                 numeric = pd.to_numeric(candidate, errors="coerce")
@@ -341,6 +343,9 @@ class TableFormatter:
         """
         Decide if the first parsed row is a header row (mostly text) or data (mostly numeric/boolean).
         Conservative: require a majority of cells look non-numeric and non-empty.
+
+        Change: treat a token as header-like only if it contains letters and does NOT contain digits.
+        This avoids misclassifying identifiers like 'alpha-01' or mixed alnum codes as headers.
         """
         if not first_row_values:
             return False
@@ -352,12 +357,19 @@ class TableFormatter:
                 # blank cell — don't count
                 continue
             total += 1
-            # treat tokens with letters or symbols as text-like headers
-            if re.search(r"[A-Za-z\u00C0-\u017F]", s) or re.search(r"[^\d\.\-\,:\sTZ]", s):
+
+            has_letters = bool(re.search(r"[A-Za-z\u00C0-\u017F]", s))
+            has_digits = bool(re.search(r"\d", s))
+
+            # header-like if it has letters and no digits (e.g. "Product", "City", "Last Login")
+            if has_letters and not has_digits:
                 text_like += 1
             else:
-                # if token contains only digits, punctuation or ISO-datetime-like, treat as data
-                pass
+                # also consider punctuation-only tokens (rare headers like "%", "€") as header-like if they
+                # contain non-alphanumeric characters but no digits
+                if not has_digits and re.search(r"[^\w\s]", s):
+                    text_like += 1
+
         if total == 0:
             return False
         return (text_like / total) >= 0.5

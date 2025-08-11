@@ -1,10 +1,12 @@
+# /src/main/tablebeautifier/bot/handlers.py
+
 import re
 import logging
 from io import StringIO
 import pandas as pd
 import time
 
-from tablebeautifier.utils.table_formatter import TableFormatter
+from main.tablebeautifier.utils.table_formatter import TableFormatter
 
 logger = logging.getLogger(__name__)
 
