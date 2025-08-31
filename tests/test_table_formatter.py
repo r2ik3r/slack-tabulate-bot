@@ -1,11 +1,9 @@
 import io
-import os
-import random
-import string
-
 import pandas as pd
+import pytest
+import re
 
-from src.main.tablebeautifier.utils.table_formatter import TableFormatter
+from tablebeautifier.utils.table_formatter import TableFormatter
 
 
 def _csv_to_df(csv_str: str) -> pd.DataFrame:
@@ -24,11 +22,10 @@ def test_detects_basic_csv_and_adds_index_and_columns():
     processed, final_ctx = f.process_all_inputs(text)
     assert final_ctx == ""
     assert len(processed) == 1
-    ctx, csv_str, rows, cols = processed[0]
+    ctx, csv_str, rows, cols = processed
     assert ctx == ""
     df = _csv_to_df(csv_str)
-    # Index + 5 columns
-    assert list(df.columns)[0] == "Index"
+    assert list(df.columns) == "Row"
     assert rows == len(df)
     assert cols == len(df.columns)
 
@@ -45,12 +42,12 @@ def test_detects_tsv_and_preserves_context_order():
     f = TableFormatter()
     processed, final_ctx = f.process_all_inputs(text)
     assert len(processed) == 1
-    ctx, csv_str, rows, cols = processed[0]
+    ctx, csv_str, rows, cols = processed
     assert "Hello, please find the data below" in ctx
     assert "Today's data" in ctx
     assert final_ctx.strip() == "Thanks!"
     df = _csv_to_df(csv_str)
-    assert "Index" in df.columns
+    assert "Row" in df.columns
 
 
 def test_semicolon_csv_headerless_creates_Column_names():
@@ -62,11 +59,11 @@ def test_semicolon_csv_headerless_creates_Column_names():
     f = TableFormatter()
     processed, _ = f.process_all_inputs(text)
     assert len(processed) == 1
-    _, csv_str, _, _ = processed[0]
+    _, csv_str, _, _ = processed
     df = _csv_to_df(csv_str)
-    assert list(df.columns)[0] == "Index"
-    # headerless -> Column1..ColumnN
-    assert "Column1" in df.columns and "Column2" in df.columns and "Column3" in df.columns
+    assert list(df.columns) == "Row"
+    # headerless -> Column_1..Column_n
+    assert "Column_1" in df.columns and "Column_2" in df.columns and "Column_3" in df.columns
 
 
 def test_pipe_markdown_table():
@@ -79,10 +76,10 @@ def test_pipe_markdown_table():
     f = TableFormatter()
     processed, _ = f.process_all_inputs(text)
     assert len(processed) == 1
-    _, csv_str, rows, cols = processed[0]
+    _, csv_str, rows, cols = processed
     assert rows == 2
     df = _csv_to_df(csv_str)
-    assert "Index" in df.columns
+    assert "Row" in df.columns
     assert {"User ID", "Username", "Role", "Last Login"}.issubset(set(df.columns))
 
 
@@ -95,9 +92,9 @@ def test_mixed_multispace_delim_and_thousands():
     f = TableFormatter()
     processed, _ = f.process_all_inputs(text)
     assert len(processed) == 1
-    _, csv_str, _, _ = processed[0]
+    _, csv_str, _, _ = processed
     df = _csv_to_df(csv_str)
-    assert "Index" in df.columns
+    assert "Row" in df.columns
     assert "requests" in df.columns
 
 
@@ -108,7 +105,6 @@ def test_avoid_false_positive_on_normal_text():
     )
     f = TableFormatter()
     processed, final_ctx = f.process_all_inputs(text)
-    # No tables; everything is trailing context
     assert processed == []
     assert "Hello team" in final_ctx
 
@@ -127,8 +123,46 @@ def test_large_csv_parsing_is_supported_rows_and_cols():
     f = TableFormatter()
     processed, _ = f.process_all_inputs(text)
     assert len(processed) == 1
-    _, csv_str, out_rows, out_cols = processed[0]
-    assert out_rows == rows  # number of data rows remains
-    assert out_cols == cols + 1  # plus Index column
+    _, csv_str, out_rows, out_cols = processed
+    assert out_rows == rows
+    assert out_cols == cols + 1  # plus Row column
 
+SAMPLES_TEXT = r"""
+Context before
+A,B,C
+1,2,3
+4,5,6
+Context after
+-----
+Intro
+X;Y
+10;20
+20;30
+Tail
+-----
+Non-table prose only, do not detect.
+"""
 
+def _blocks_from_samples(text: str):
+    blocks = re.split(r"(?m)^\s*[-]{5,}\s*$", text.strip())
+    return [b.strip() for b in blocks if b.strip()]
+
+@pytest.mark.parametrize("block", _blocks_from_samples(SAMPLES_TEXT))
+def test_samples_blocks_detection(block):
+    f = TableFormatter()
+    processed, final_ctx = f.process_all_inputs(block)
+    # If the block contains a table, we expect exactly one processed item
+    has_table = any(ch in block for ch in [",", "\t", ";", "|"]) and "Non-table prose only" not in block
+    if has_table:
+        assert len(processed) == 1
+        ctx, csv_str, rows, cols = processed
+        assert isinstance(csv_str, str) and csv_str
+        df = pd.read_csv(io.StringIO(csv_str))
+        assert "Row" in df.columns
+        # Context before should be in ctx, tail should be in final_ctx
+        if "Context before" in block:
+            assert "Context before" in ctx
+        if "Context after" in block:
+            assert "Context after" in final_ctx
+    else:
+        assert processed == []

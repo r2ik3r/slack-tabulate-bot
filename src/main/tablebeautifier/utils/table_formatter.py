@@ -39,41 +39,55 @@ class TableFormatter:
     # Public quick-check
     # -------------------------
     def is_table_like(self, text: str) -> bool:
-        """
-        Cheap heuristic: don't allocate heavy objects.
-        Returns True if the text likely contains a table block.
-        """
         if not text or not text.strip():
             return False
 
-        # strip code fences quickly to avoid false positives inside code blocks
         t = text.strip()
+        # If entire message is fenced code, only allow markdown pipe tables inside
         if t.startswith("```") and t.endswith("```"):
-            # consider inner content
-            t = t[3:-3].strip()
+            inner = t[3:-3].strip()
+            inner_lines = [ln for ln in inner.splitlines() if ln.strip()]
+            if len(inner_lines) >= 2 and "|" in inner_lines and self._md_divider_re.match(inner_lines[4]):
+                return True
+            return False
 
         lines = [ln for ln in t.splitlines() if ln.strip()]
         if len(lines) < 2:
-            return False  # too few lines
+            return False
 
-        # Count delimiter occurrences on the first few lines (cheap)
-        # If a delimiter appears consistently, we treat as table-like.
-        sample_lines = lines[:6]  # sample first 6 lines
+        # Fast path: markdown pipe table with header divider
+        if "|" in lines and self._md_divider_re.match(lines[4]):
+            return True
+
+        sample = lines[:6]
+
+        # Delimiter consistency across lines
+        best_support = 0
+        best_counts = []
         for delim in self._delimiters:
-            counts = [ln.count(delim) for ln in sample_lines]
-            # require at least min_delims on at least half of sampled lines
-            good = sum(1 for c in counts if c >= self._min_delims_for_detection)
-            if good >= max(1, len(sample_lines) // 2):
+            counts = [ln.count(delim) for ln in sample]
+            qualifying = [c for c in counts if c >= self._min_delims_for_detection]
+            support = len(qualifying)
+            if support > best_support:
+                best_support = support
+                best_counts = qualifying
+
+        # Require at least 3 lines with repeated delimiter and similar counts
+        if best_support >= 3:
+            mn, mx = min(best_counts), max(best_counts)
+            if mn > 0 and mx <= mn * 2:
                 return True
 
-        # check multi-space separation scenario (like aligned columns)
-        ms_counts = [1 for ln in sample_lines if self._multi_space_re.search(ln)]
-        if len(ms_counts) >= max(1, len(sample_lines) // 2):
-            return True
-
-        # markdown pipe table detection: header + divider line
-        if len(lines) >= 2 and "|" in lines[0] and self._md_divider_re.match(lines[1]):
-            return True
+        # Multi-space columns: at least two lines that each split into >=3 parts
+        ms_lines = [ln for ln in sample if self._multi_space_re.search(ln)]
+        if len(ms_lines) >= 2:
+            ok = 0
+            for ln in ms_lines:
+                parts = [p.strip() for p in re.split(self._multi_space_re, ln)]
+                if len([p for p in parts if p]) >= 3:
+                    ok += 1
+            if ok >= 2:
+                return True
 
         return False
 
@@ -81,64 +95,47 @@ class TableFormatter:
     # Main extractor (used by handlers)
     # -------------------------
     def process_all_inputs(self, text: str) -> Tuple[List[Tuple[str, str, int, int]], str]:
-        """
-        Scans text, extracts table blocks, returns list of (context_before, csv_str, rows, cols)
-        and trailing final context (text after last table).
-
-        Behavior:
-        - Preserves context blocks that appear before each table.
-        - Preserves trailing context after last table (returned separately).
-        - Limits are intentionally conservative (no heavy processing unless confirmed).
-        """
         if not text:
             return [], ""
 
-        # Remove surrounding triple-backtick fences if present at entire message-level
         top_text = text
         stripped_top = top_text.strip()
         if stripped_top.startswith("```") and stripped_top.endswith("```"):
-            # keep inner content
             top_text = stripped_top[3:-3]
 
         lines = top_text.splitlines()
 
-        tables = []  # will hold tuples (raw_table_lines_str, context_before_str)
+        tables = []
         current_table_lines: List[str] = []
         current_context_lines: List[str] = []
         trailing_context_lines: List[str] = []
 
-        # iterate and group contiguous table-like lines into table blocks
         for idx, raw_line in enumerate(lines):
             line = raw_line.rstrip("\n")
             if self._looks_like_table_line(line):
                 current_table_lines.append(line)
             else:
                 if current_table_lines:
-                    # flush current table + its preceding context
                     tables.append(("\n".join(current_table_lines), "\n".join(current_context_lines)))
                     current_table_lines = []
                     current_context_lines = []
                 current_context_lines.append(line)
 
-        # after loop, flush final table or trailing context
         if current_table_lines:
             tables.append(("\n".join(current_table_lines), "\n".join(current_context_lines)))
         else:
             trailing_context_lines.extend(current_context_lines)
 
         processed_tables = []
-        # parse each detected raw table into CSV string and counts
         for raw_table, context_before in tables:
             try:
                 csv_str, rows, cols = self._clean_and_format_table(raw_table)
+                # Skip empty parses; treat as plain text context
+                if not csv_str or rows == 0 or cols == 0:
+                    trailing_context_lines.append(raw_table)
+                    continue
                 processed_tables.append((context_before.strip(), csv_str, rows, cols))
-            except Exception as e:
-                # parsing one table should not break others; log and skip that table
-                # keep the lines as trailing context to preserve user text
-                logger = getattr(self, "_logger", None)
-                if logger:
-                    logger.exception("Failed to parse one detected table block: %s", e)
-                # fallback: attach raw block to trailing context as-is
+            except Exception:
                 trailing_context_lines.append(raw_table)
                 continue
 
@@ -295,11 +292,34 @@ class TableFormatter:
         # Final cleanup: drop columns that are still entirely empty
         df.dropna(axis=1, how="all", inplace=True)
 
-        # Build CSV string
+        # Build CSV string with thousands separators for numeric columns
+        df_out = df.copy()
+        for col in df_out.columns:
+            s = df_out[col]
+            # Format floats with grouping and preserve decimals; ints as grouped
+            if pd.api.types.is_integer_dtype(s):
+                df_out[col] = s.map(lambda v: f"{int(v):,}" if pd.notna(v) else "")
+            elif pd.api.types.is_float_dtype(s):
+                df_out[col] = s.map(lambda v: f"{float(v):,}" if pd.notna(v) else "")
+            else:
+                # Attempt to coerce objects that are mostly numeric back to numbers for formatting
+                try:
+                    numeric = pd.to_numeric(s, errors="coerce")
+                    non_na = numeric.notna().sum()
+                    non_empty = s.astype(str).str.strip().replace({"": pd.NA}).notna().sum()
+                    if non_empty > 0 and (non_na / non_empty) >= 0.6:
+                        # Decide int vs float presentation by checking fractional part
+                        if (numeric.dropna() % 1 == 0).all():
+                            df_out[col] = numeric.map(lambda v: f"{int(v):,}" if pd.notna(v) else "")
+                        else:
+                            df_out[col] = numeric.map(lambda v: f"{float(v):,}" if pd.notna(v) else "")
+                except Exception:
+                    pass
+
         out = io.StringIO()
-        # When writing CSV, let pandas infer quoting; index already included as "Row" column
-        df.to_csv(out, index=False)
+        df_out.to_csv(out, index=False)
         csv_str = out.getvalue().rstrip("\n")
+
 
         rows = len(df)
         cols = len(df.columns)
@@ -309,35 +329,24 @@ class TableFormatter:
     # Helpers
     # -------------------------
     def _detect_delimiter(self, text: str) -> str:
-        """
-        Heuristic to pick the delimiter from the first non-empty line.
-        Prefers tab/pipe/semicolon/comma — falls back to multi-space pattern.
-        """
-        # get first non-empty line
-        for ln in text.splitlines():
-            ln = ln.strip()
-            if ln:
-                first = ln
-                break
-        else:
-            first = text.strip()
+        non_empty = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        head = non_empty[:5] if non_empty else []
+        if not head:
+            return ","
 
-        # Count occurrences outside quotes simply (fast)
-        counts = {}
-        for d in self._delimiters:
-            counts[d] = first.count(d)
+        totals = {d: 0 for d in self._delimiters}
+        for ln in head:
+            for d in self._delimiters:
+                totals[d] += ln.count(d)
 
-        # multi-space check
-        if self._multi_space_re.search(first) and max(counts.values()) < 2:
-            # use regex multi-space
+        # If multi-space is present and no delimiter is prominent, use multi-space
+        if any(self._multi_space_re.search(ln) for ln in head) and max(totals.values()) < 2:
             return r"\s{2,}"
 
-        # pick the delimiter with the highest count
-        best = max(counts.items(), key=lambda kv: kv[1])
-        if best[1] >= 1:
-            return best[0]
-        # default fallback
-        return ","
+        # Prefer tab, pipe, semicolon, then comma on ties
+        preference = ["\t", "|", ";", ","]
+        best = max(self._delimiters, key=lambda d: (totals[d], preference.index(d)))
+        return best if totals[best] >= 1 else ","
 
     def _first_row_looks_like_header(self, first_row_values: List[str]) -> bool:
         """

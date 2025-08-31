@@ -1,4 +1,4 @@
-# /src/main/tablebeautifier/bot/handlers.py
+# src/main/tablebeautifier/bot/handlers.py
 
 import re
 import logging
@@ -6,7 +6,7 @@ from io import StringIO
 import pandas as pd
 import time
 
-from main.tablebeautifier.utils.table_formatter import TableFormatter
+from tablebeautifier.utils.table_formatter import TableFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,6 @@ HELP_TEXT = """Hi there! I'm the Table Beautifier bot. 🤖 You can:
 """
 
 formatter = TableFormatter()
-
 
 def register_handlers(app):
     """
@@ -30,7 +29,6 @@ def register_handlers(app):
     # Cache bot user id to avoid calling auth_test repeatedly in hot path.
     bot_user_id = None
     try:
-        # app.client exists on Bolt App; this is a best-effort cache at registration time.
         auth_resp = app.client.auth_test()
         bot_user_id = auth_resp.get("user_id")
         logger.debug("Cached bot_user_id for TableBeautifier: %s", bot_user_id)
@@ -48,7 +46,7 @@ def register_handlers(app):
     def create_and_post_snippets(client, text, channel_id, user_id, thread_ts=None):
         """
         Main work: detect tables, post CSV files for each table, and post trailing context.
-        We keep exceptions local and well-logged; callers handle/notify as needed.
+        Adds a tiny delay between pushes to stabilize ordering in Slack without noticeable latency.
         """
         try:
             post_channel_id = _open_dm_if_needed(client, channel_id, user_id)
@@ -68,7 +66,8 @@ def register_handlers(app):
                 comment_parts = []
                 if context:
                     comment_parts.append(context.strip())
-                comment_parts.append(f"📊 Rows: {rows} • Columns: {cols}")
+                #comment_parts.append(f"📊 Rows: {rows} -  Columns: {cols}")
+                comment_parts.append(f"• Rows: {rows} • Columns: {cols}")
                 initial_comment = "\n\n".join(comment_parts)
 
                 # upload CSV content
@@ -90,7 +89,12 @@ def register_handlers(app):
                         thread_ts=thread_ts,
                     )
 
+                # minimal spacing to avoid interleaving/racey ordering
+                time.sleep(0.12)
+
+            # brief pause before trailing context so snippet previews render first
             if final_context:
+                time.sleep(0.12)
                 client.chat_postMessage(channel=post_channel_id, text=final_context, thread_ts=thread_ts)
 
         except Exception:
@@ -99,7 +103,7 @@ def register_handlers(app):
 
     def format_as_text_table(text: str) -> str:
         """
-        For /app_mention -> return combined text message (context + pretty tables)
+        Retained utility (not used by handlers anymore).
         """
         processed_tables, final_context = formatter.process_all_inputs(text)
         if not processed_tables:
@@ -109,7 +113,6 @@ def register_handlers(app):
         for context, csv_content, rows, cols in processed_tables:
             if context:
                 parts.append(context.strip())
-            # safe read: pandas will parse the CSV content we created
             df = pd.read_csv(StringIO(csv_content))
             parts.append(formatter.format_as_text_table(df))
 
@@ -144,7 +147,7 @@ def register_handlers(app):
     @app.event("app_mention")
     def handle_app_mention_events(event, client):
         """
-        Mention -> produce text tables (not file uploads).
+        Mention -> produce the same CSV snippet uploads as other paths.
         """
         text = event.get("text", "") or ""
         channel_id = event.get("channel")
@@ -162,19 +165,26 @@ def register_handlers(app):
         if not formatter.is_table_like(text_without_mention):
             client.chat_postMessage(
                 channel=channel_id,
-                text="I couldn't detect table-like data. Paste a CSV/TSV or mention me with data.",
+                text="I couldn't detect table-like data. Paste a CSV/TSV or use /csv with your data.",
                 thread_ts=thread_ts,
             )
             return
 
         try:
-            msg = format_as_text_table(text_without_mention)
-            client.chat_postMessage(channel=channel_id, text=msg, thread_ts=thread_ts)
+            create_and_post_snippets(
+                client=client,
+                text=text_without_mention,
+                channel_id=channel_id,
+                user_id=event.get("user"),
+                thread_ts=thread_ts,
+            )
         except Exception as e:
-            logger.exception("Failed to format table for app_mention")
-            client.chat_postMessage(channel=channel_id,
-                                    text=f"😕 Sorry, I couldn't format that. {str(e)}",
-                                    thread_ts=thread_ts)
+            logger.exception("Failed to create snippet for app_mention")
+            client.chat_postMessage(
+                channel=channel_id,
+                text=f"😕 Sorry, I couldn't process that. {str(e)}",
+                thread_ts=thread_ts,
+            )
 
     @app.event("message")
     def handle_message_events(event, client):
@@ -190,7 +200,6 @@ def register_handlers(app):
         if event.get("subtype") or event.get("bot_id"):
             return
 
-        # Skip if message includes files or attachments — these are separate flows.
         if event.get("files") or event.get("attachments"):
             return
 
@@ -203,22 +212,17 @@ def register_handlers(app):
             if bot_user_id and f"<@{bot_user_id}>" in text:
                 return
         except Exception:
-            # if cached id not available, best effort: still proceed
             pass
 
-        # Very cheap early exit
         if not formatter.is_table_like(text):
             return
 
-        # Protect against extremely large pasted messages (avoid blocking)
         max_chars = 250_000
         if len(text) > max_chars:
             logger.info("Message too large for auto-parsing (%d chars); skipping. Suggest /csv or file upload.", len(text))
             return
 
         try:
-            # Do the work; exceptions are caught by caller
             create_and_post_snippets(client, text, event.get("channel"), event.get("user"), thread_ts=event.get("thread_ts"))
         except Exception as e:
-            # log but don't re-raise — we don't want to crash Bolt listener
             logger.info(f"Auto-detection skipped or failed: {e}")
