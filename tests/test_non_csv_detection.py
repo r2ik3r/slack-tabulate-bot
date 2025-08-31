@@ -1,6 +1,5 @@
 from src.main.tablebeautifier.utils.table_formatter import TableFormatter
 
-
 def test_plain_text_is_not_detected_as_table():
     text = (
         "Hello there, this message contains commas, periods, and numbers like 1, 2, 3,"
@@ -25,5 +24,9 @@ def test_code_block_should_not_trigger_detection():
     assert not f.is_table_like(text)
     processed, _ = f.process_all_inputs(text)
     assert processed == []
+
+
+test_plain_text_is_not_detected_as_table()
+test_code_block_should_not_trigger_detection()
 
 
