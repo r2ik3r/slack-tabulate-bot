@@ -275,12 +275,12 @@ class TableFormatter:
             # set header from first row and drop it
             header_values = [str(v).strip() for v in df.iloc[0].tolist()]
             # fill blank header names with Column_n
-            header_values = [h if h else f"Column{i+1}" for i, h in enumerate(header_values)]
+            header_values = [h if h else f"Column_{i+1}" for i, h in enumerate(header_values)]
             df = df.iloc[1:].reset_index(drop=True)
             df.columns = header_values
         else:
             # no header — synthesize Column_1..Column_n
-            df.columns = [f"Column{i+1}" for i in range(len(df.columns))]
+            df.columns = [f"Column_{i+1}" for i in range(len(df.columns))]
 
         # After header handling, drop any fully-empty columns again
         df.dropna(axis=1, how="all", inplace=True)
