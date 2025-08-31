@@ -2,6 +2,7 @@
 
 import io
 import re
+import logging
 import pandas as pd
 from typing import List, Tuple
 
@@ -18,7 +19,7 @@ class TableFormatter:
     - format_as_text_table(df) -> textual pretty table (used for mentions)
     """
 
-    ROW_COLUMN_NAMES = {"#", "row", "id"}  # normalized lowercase check
+    ROW_COLUMN_NAMES = {"#", "row", "id", "index"}  # normalized lowercase check
     # compiled regexes for speed (used heavily)
     _md_divider_re = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
     _leading_pipe_re = re.compile(r"^\s*\|\s*")
@@ -34,6 +35,10 @@ class TableFormatter:
         self._delimiters = [",", "\t", ";", "|"]
         # precompile simple delimiter counting regex for speed
         self._multi_space_re = re.compile(r"\s{2,}")
+        # intra-token multi-space: requires non-space before and after (avoid indentation false positives)
+        self._intra_token_multispace_re = re.compile(r"\S\s{2,}\S")
+        # logger for internal diagnostics
+        self._logger = logging.getLogger(__name__)
 
     # -------------------------
     # Public quick-check
@@ -66,8 +71,8 @@ class TableFormatter:
             if good >= max(1, len(sample_lines) // 2):
                 return True
 
-        # check multi-space separation scenario (like aligned columns)
-        ms_counts = [1 for ln in sample_lines if self._multi_space_re.search(ln)]
+        # check multi-space separation scenario (like aligned columns), ignoring leading indentation
+        ms_counts = [1 for ln in sample_lines if self._intra_token_multispace_re.search(ln)]
         if len(ms_counts) >= max(1, len(sample_lines) // 2):
             return True
 
@@ -131,6 +136,11 @@ class TableFormatter:
         for raw_table, context_before in tables:
             try:
                 csv_str, rows, cols = self._clean_and_format_table(raw_table)
+                # Skip empty/invalid parses or single-line false positives
+                raw_lines_count = len([ln for ln in raw_table.splitlines() if ln.strip()])
+                if rows <= 0 or cols <= 0 or raw_lines_count < 2:
+                    trailing_context_lines.append(raw_table)
+                    continue
                 processed_tables.append((context_before.strip(), csv_str, rows, cols))
             except Exception as e:
                 # parsing one table should not break others; log and skip that table
@@ -177,8 +187,8 @@ class TableFormatter:
                 if len([p for p in parts if p]) >= self._min_columns_for_detection:
                     return True
 
-        # multi-space columns
-        if self._multi_space_re.search(s):
+        # multi-space columns (ignore indentation-only spaces)
+        if self._intra_token_multispace_re.search(s):
             parts = [p.strip() for p in re.split(self._multi_space_re, s)]
             if len([p for p in parts if p]) >= self._min_columns_for_detection:
                 return True
@@ -203,6 +213,8 @@ class TableFormatter:
 
         lines = [ln for ln in block.splitlines() if ln is not None]
 
+        # Detect if it's a markdown pipe table (has a divider line). If so, we will force header usage.
+        has_md_divider = any(self._md_divider_re.match(ln) for ln in lines)
         # Remove markdown divider rows (|-----|)
         cleaned_lines = [ln for ln in lines if not self._md_divider_re.match(ln)]
 
@@ -245,17 +257,30 @@ class TableFormatter:
         if df.shape[1] == 0 or df.shape[0] == 0:
             return "", 0, 0
 
-        # Decide if first row is header-like
-        if self._first_row_looks_like_header(df.iloc[0].tolist()):
+        # Decide if first row is header-like (prefer comparing first two rows when possible)
+        header_like = False
+        try:
+            if len(df) >= 2:
+                header_like = self._first_row_header_vs_second_row_data(df)
+            else:
+                header_like = self._first_row_looks_like_header(df.iloc[0].tolist())
+        except Exception:
+            header_like = self._first_row_looks_like_header(df.iloc[0].tolist())
+
+        # Force header behavior for markdown pipe tables which include a divider line
+        if has_md_divider:
+            header_like = True
+
+        if header_like:
             # set header from first row and drop it
             header_values = [str(v).strip() for v in df.iloc[0].tolist()]
             # fill blank header names with Column_n
-            header_values = [h if h else f"Column_{i+1}" for i, h in enumerate(header_values)]
+            header_values = [h if h else f"Column{i+1}" for i, h in enumerate(header_values)]
             df = df.iloc[1:].reset_index(drop=True)
             df.columns = header_values
         else:
             # no header — synthesize Column_1..Column_n
-            df.columns = [f"Column_{i+1}" for i in range(len(df.columns))]
+            df.columns = [f"Column{i+1}" for i in range(len(df.columns))]
 
         # After header handling, drop any fully-empty columns again
         df.dropna(axis=1, how="all", inplace=True)
@@ -263,7 +288,7 @@ class TableFormatter:
         # Detect existing row/index column (name or sequential numeric series)
         if not self._has_row_index_column(df):
             # insert Row column at front
-            df.insert(0, "Row", range(1, len(df) + 1))
+            df.insert(0, "Index", range(1, len(df) + 1))
         else:
             # Normalize index column name if the user used 'Row' variants
             # (No action necessary; we keep existing column as-is)
@@ -361,18 +386,38 @@ class TableFormatter:
             has_letters = bool(re.search(r"[A-Za-z\u00C0-\u017F]", s))
             has_digits = bool(re.search(r"\d", s))
 
-            # header-like if it has letters and no digits (e.g. "Product", "City", "Last Login")
-            if has_letters and not has_digits:
+            # Treat as header-like if it contains any letters (even with digits),
+            # or if it has symbols but no digits (e.g., "%", "€").
+            if has_letters:
                 text_like += 1
-            else:
-                # also consider punctuation-only tokens (rare headers like "%", "€") as header-like if they
-                # contain non-alphanumeric characters but no digits
-                if not has_digits and re.search(r"[^\w\s]", s):
-                    text_like += 1
+            elif not has_digits and re.search(r"[^\w\s]", s):
+                text_like += 1
 
         if total == 0:
             return False
-        return (text_like / total) >= 0.5
+        return (text_like / total) >= 0.65
+
+    def _first_row_header_vs_second_row_data(self, df: pd.DataFrame) -> bool:
+        """
+        Determine header by comparing row0 vs row1 token types.
+        Row0 should be mostly non-numeric; row1 should be mostly numeric or mixed with numbers.
+        """
+        if df.shape[0] < 2:
+            return False
+        row0 = [str(v).strip() for v in df.iloc[0].tolist()]
+        row1 = [str(v).strip() for v in df.iloc[1].tolist()]
+
+        def is_numeric_token(s: str) -> bool:
+            return bool(re.fullmatch(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", s))
+
+        non_numeric0 = sum(1 for s in row0 if s and not is_numeric_token(s))
+        numeric1 = sum(1 for s in row1 if s and is_numeric_token(s))
+
+        total0 = sum(1 for s in row0 if s)
+        total1 = sum(1 for s in row1 if s)
+        if total0 == 0 or total1 == 0:
+            return False
+        return (non_numeric0 / total0) >= 0.6 and (numeric1 / total1) >= 0.5
 
     def _has_row_index_column(self, df: pd.DataFrame) -> bool:
         """
@@ -387,18 +432,6 @@ class TableFormatter:
         first_col_name = str(df.columns[0]).strip().lower()
         if first_col_name in self.ROW_COLUMN_NAMES:
             return True
-
-        # try to coerce first column to ints and see if it forms 1..n
-        try:
-            cleaned = df.iloc[:, 0].astype(str).str.strip()
-            numeric = pd.to_numeric(cleaned.str.replace(",", ""), errors="coerce").dropna().astype(int)
-            if len(numeric) >= 1:
-                seq = list(range(1, len(numeric) + 1))
-                # consider it an index if they match exactly for non-null prefix
-                if list(numeric) == seq[: len(numeric)]:
-                    return True
-        except Exception:
-            pass
 
         return False
 

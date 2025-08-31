@@ -24,13 +24,14 @@ A powerful Slack bot that automatically detects, formats, and displays tabular d
    SLACK_CLIENT_SECRET=your_client_secret
    ```
 
-3. **Run Locally**
+3. **Run Locally (Development via Socket Mode)**
 
    ```sh
+   # ensure .env contains SLACK_BOT_TOKEN and SLACK_APP_TOKEN for Socket Mode
    PYTHONPATH=./src poetry run python -m main.tablebeautifier.bot.run_dev
    ```
 
-4. **Expose to Slack**
+4. **Expose to Slack (for HTTP mode)**
 
    ```sh
    ngrok http 3000
@@ -140,7 +141,7 @@ The bot is designed as a **public Slack App** using **OAuth 2.0**, requiring a *
 
 ---
 
-### 3️⃣ Deploy to a Public Host
+### 3️⃣ Deploy to a Public Host (Production HTTP/OAuth mode)
 
 1. Deploy to **Render**, **Railway**, or similar.
 
@@ -220,8 +221,37 @@ https://<YOUR_PUBLIC_URL>/slack/install
 #### Local Testing
 
 ```sh
-ngrok http 3000
+# Development (Socket Mode): requires SLACK_BOT_TOKEN and SLACK_APP_TOKEN in .env
 PYTHONPATH=./src poetry run python -m main.tablebeautifier.bot.run_dev
+
+# HTTP mode (for OAuth install flow): requires SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_SIGNING_SECRET
+poetry run gunicorn "main.tablebeautifier.bot.app:server" --chdir ./src
+```
+
+---
+
+## 🧪 Testing
+
+Run the unit tests with Poetry:
+
+```sh
+poetry lock
+poetry install
+PYTHONPATH=. poetry run pytest -q
+```
+
+Notes:
+- Tests cover CSV/TSV/semicolon/pipe tables, headerless/index handling, multi-space delimited data, context preservation, large CSVs, and non-CSV false positives.
+- For very large messages (>250k chars), auto-detection is skipped. Use `/csv` or upload a file.
+
+---
+
+## 📦 Data Directory
+
+The app uses `./data` for OAuth installation storage in production HTTP mode. Ensure it exists or is writable by the process:
+
+```sh
+mkdir -p data
 ```
 
 ---
