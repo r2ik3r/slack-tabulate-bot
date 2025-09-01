@@ -1,269 +1,108 @@
-# Table Beautifier Slack Bot 📊
+# Table Beautifier Slack Bot
 
-A powerful Slack bot that automatically detects, formats, and displays tabular data (CSV, TSV, etc.) into clean, scrollable snippets — no manual formatting required.
+A Slack app that detects pasted tabular text (CSV/TSV/semicolon/pipe/multi‑space), cleans it, and posts a scrollable CSV snippet to the same conversation (channel, DM, thread). No manual formatting required.[3][4]
 
-<img src="./docs/demo.png" alt="Demo of Table Beautifier in action" width="250px">
+## Quickstart
 
----
+- Prerequisites: Python 3.9+, Poetry, a Slack workspace and a Slack App (created from scratch).[5]
+- Clone and install:
+  - git clone https://github.com/your-username/slack-table-beautifier-bot.git
+  - cd slack-table-beautifier-bot
+  - poetry install[5]
 
-## ⚡ Quickstart (Under 60 Seconds)
+- Environment variables:
+  - Development (Socket Mode): SLACK_BOT_TOKEN, SLACK_APP_TOKEN (xapp-... with connections:write)[6][7]
+  - HTTP/OAuth: SLACK_SIGNING_SECRET, SLACK_CLIENT_ID, SLACK_CLIENT_SECRET[8]
 
-1. **Clone & Install Dependencies**
-   ```sh
-   git clone https://github.com/your-username/slack-table-beautifier-bot.git
-   cd slack-table-beautifier-bot
-   poetry install
+- Run (Socket Mode, local):
+  - PYTHONPATH=./src poetry run python -m main.tablebeautifier.bot.run_dev[6]
 
+- Expose HTTP (optional, for OAuth/events):
+  - ngrok http 3000, update Slack App URLs to use the ngrok HTTPS endpoint.[5]
 
-2. **Add Environment Variables**
-   Create `.env`:
+## What it does
 
-   ```env
-   SLACK_SIGNING_SECRET=your_signing_secret
-   SLACK_CLIENT_ID=your_client_id
-   SLACK_CLIENT_SECRET=your_client_secret
-   ```
+- Listens to messages (channels, groups, DMs, threads). On detecting a table, it extracts, cleans headers/rows/columns, adds a row index if missing, and uploads a CSV snippet with a brief summary (rows/columns), preserving surrounding context.[9][3]
+- Unified outputs: /csv command, @app_mention, and auto-detection for normal messages all produce CSV snippet uploads via the same path.[10]
 
-3. **Run Locally (Development via Socket Mode)**
+## Features
 
-   ```sh
-   # ensure .env contains SLACK_BOT_TOKEN and SLACK_APP_TOKEN for Socket Mode
-   PYTHONPATH=./src poetry run python -m main.tablebeautifier.bot.run_dev
-   ```
+- CSV snippet uploads (files_upload_v2 under the hood), not rich‑text messages, for consistent, scrollable previews.[2]
+- Robust detection: CSV/TSV/semicolon/pipe and multi‑space tables, with conservative heuristics to avoid false positives on prose.[9]
+- Context preservation before and after tables; minimal inter‑push delay to reduce out‑of‑order rendering in threads.[4]
 
-4. **Expose to Slack (for HTTP mode)**
+## Project layout
 
-   ```sh
-   ngrok http 3000
-   ```
+- src/main/tablebeautifier/bot/app.py — HTTP/OAuth server (Bolt + Flask)[5]
+- src/main/tablebeautifier/bot/run_dev.py — Socket Mode entry point[7]
+- src/main/tablebeautifier/bot/handlers.py — listeners for /csv, app_mention, message; upload logic[5]
+- src/main/tablebeautifier/utils/table_formatter.py — detection, parsing, CSV rendering[9]
 
-   Update Slack App settings with your `ngrok` URL.
+## Configure Slack app
 
----
+- Create an app (From scratch) and install to workspace.[5]
+- Add Bot Token Scopes:
+  - app_mentions:read
+  - chat:write
+  - commands
+  - files:write[11][12]
+- Enable a Slash Command:
+  - /csv (Request URL set to your events endpoint)[13]
+- Event Subscriptions (HTTP mode):
+  - Request URL: https://<PUBLIC_URL>/slack/events
+  - Subscribe to: app_mention, message.channels, message.groups, message.im, message.mpim[14]
+- Interactivity:
+  - Request URL: https://<PUBLIC_URL>/slack/events[5]
+- OAuth v2:
+  - Redirect URL: https://<PUBLIC_URL>/slack/oauth/callback[8]
 
-## 🚀 How It Works
+## Run locally (Socket Mode)
 
-The **Table Beautifier** listens for messages in channels, DMs, and threads.
-When it detects something that looks like a table, it will:
+- Ensure:
+  - SLACK_BOT_TOKEN = xoxb-...
+  - SLACK_APP_TOKEN = xapp-... with connections:write[7]
+- Start:
+  - PYTHONPATH=./src poetry run python -m main.tablebeautifier.bot.run_dev[7]
+- No public URL is required for Socket Mode.[7]
 
-1. **Isolate** the table from surrounding text.
-2. **Parse & clean** it — handling multiple delimiters, irregular spacing, and messy rows.
-3. **Add a row number column** if one isn't already present.
-4. **Upload** the formatted data as a scrollable CSV snippet, preserving your original message context.
+## Deploy (HTTP/OAuth)
 
----
+- Host on Render/Railway/your platform. Environment:
+  - SLACK_SIGNING_SECRET, SLACK_CLIENT_ID, SLACK_CLIENT_SECRET[8]
+- Start command:
+  - poetry run gunicorn "main.tablebeautifier.bot.app:server" --chdir ./src[5]
+- Configure:
+  - Redirect URL: https://<PUBLIC_URL>/slack/oauth/callback
+  - Events URL: https://<PUBLIC_URL>/slack/events
+  - Interactivity URL: https://<PUBLIC_URL>/slack/events
+  - Slash command /csv → https://<PUBLIC_URL>/slack/events[5]
 
-## ✨ Features
+## File uploads and v2 migration
 
-* **Automatic Snippet Creation** – Paste raw table data, get a clean CSV snippet instantly.
-* **Slash Command** – `/csv` to explicitly format data.
-* **Text Table Fallback** – Mention `@Table Beautifier` for a plain-text table.
-* **Context Preservation** – Keeps text before/after the table intact.
-* **Flexible Parsing** – Supports CSV, TSV, semicolon, and pipe-delimited data.
-* **Works Everywhere** – Public/private channels, DMs, group DMs, and threads.
+- This app uses files_upload_v2 (SDK convenience) that wraps files.getUploadURLExternal + files.completeUploadExternal. New Slack apps cannot use files.upload; legacy deprecation ends Nov 12, 2025.[2]
+- v2 uploads are asynchronous server‑side; a short delay is applied between consecutive uploads and before trailing context to reduce apparent out‑of‑order rendering.[15]
 
----
+## Data directory
 
-## 📂 Project Structure
+- A ./data directory is used for OAuth installation storage in HTTP mode; ensure it exists and is writable by the process.[8]
 
-```
-slack-table-beautifier-bot/
-├── .env
-├── .gitignore
-├── LICENSE
-├── poetry.lock
-├── pyproject.toml
-├── README.md
-└── src/
-    └── main/
-        └── tablebeautifier/
-            ├── __init__.py
-            ├── bot/
-            │   ├── __init__.py
-            │   └── app.py
-            └── utils/
-                ├── __init__.py
-                └── table_formatter.py
-```
+## Tips and notes
 
----
+- Large messages: auto‑detection is skipped beyond a conservative size cap; use /csv or upload a file.[9]
+- Ordering: a tiny sleep between pushes stabilizes ordering; all posts share thread_ts when applicable to keep conversation context intact.[4]
+- Permissions: chat:write, files:write, commands, app_mentions:read are required; add read scopes only if needed for your workflow.[12][11]
 
-## 🛠 Setup for Distribution
+## Troubleshooting
 
-The bot is designed as a **public Slack App** using **OAuth 2.0**, requiring a **public URL** to receive events.
+- Invalid Request URL: ensure the public URL is reachable over HTTPS and matches the configured endpoints.[5]
+- Not uploading: verify files:write scope and that the app is installed to the target channel; new apps must use files_upload_v2 via SDKs.[2]
+- No response: confirm the app is in the channel/DM and that event subscriptions are enabled.[14]
 
----
+## Security and compliance
 
-### 1️⃣ Configure Your Slack App
+- Tokens (xoxb-/xapp-) must be stored as secrets; do not commit .env. Restrict app scopes to the minimum required.[1]
+- Socket Mode eliminates inbound public endpoints for local development; for production, use HTTPS and validate signatures.[7]
 
-1. Go to [Slack API dashboard](https://api.slack.com/apps) → **"Create New App"** → **"From scratch"**.
-2. Name it (e.g., `Table Beautifier`) → choose your workspace.
-3. In **OAuth & Permissions**, add **Bot Token Scopes**:
+## License
 
-    * `app_mentions:read`
-    * `chat:write`
-    * `commands`
-    * `files:write`
-4. In **Slash Commands**, create `/csv` (set Request URL later).
-5. Get **Client ID**, **Client Secret**, and **Signing Secret** from **Basic Information**.
-
----
-
-### 2️⃣ Local Environment Setup
-
-1. Clone repo & enter:
-
-   ```sh
-   git clone https://github.com/your-username/slack-table-beautifier-bot.git
-   cd slack-table-beautifier-bot
-   ```
-2. Install Poetry → [Guide](https://python-poetry.org/docs/#installation)
-3. Install dependencies:
-
-   ```sh
-   poetry install
-   ```
-4. Create `.env`:
-
-   ```env
-   SLACK_SIGNING_SECRET=...
-   SLACK_CLIENT_ID=...
-   SLACK_CLIENT_SECRET=...
-   ```
-5. Add `.gitignore`:
-
-   ```gitignore
-   __pycache__/
-   *.pyc
-   .env
-   /data/
-   ```
-
----
-
-### 3️⃣ Deploy to a Public Host (Production HTTP/OAuth mode)
-
-1. Deploy to **Render**, **Railway**, or similar.
-
-    * Add `.env` vars in dashboard.
-    * Start command:
-
-      ```sh
-      poetry run gunicorn "main.tablebeautifier.bot.app:server" --chdir ./src
-      ```
-
-2. Get your **Public URL** (e.g., `https://table-beautifier.onrender.com`).
-
-3. Update Slack App:
-
-    * **Redirect URL**:
-
-      ```
-      https://<YOUR_PUBLIC_URL>/slack/oauth/callback
-      ```
-    * **Event Subscriptions** → **Request URL**:
-
-      ```
-      https://<YOUR_PUBLIC_URL>/slack/events
-      ```
-    * Subscribe to:
-
-      ```
-      app_mention
-      message.channels
-      message.groups
-      message.im
-      message.mpim
-      ```
-    * **Interactivity & Shortcuts** → Request URL:
-
-      ```
-      https://<YOUR_PUBLIC_URL>/slack/events
-      ```
-    * **Slash Commands** → `/csv` → Request URL:
-
-      ```
-      https://<YOUR_PUBLIC_URL>/slack/events
-      ```
-
----
-
-## ☁ One-Click Render Deploy
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
-
-**Render Settings:**
-
-* **Environment**: Python 3.x
-* **Build Command**:
-
-  ```sh
-  poetry install
-  ```
-* **Start Command**:
-
-  ```sh
-  poetry run gunicorn "main.tablebeautifier.bot.app:server" --chdir ./src
-  ```
-
----
-
-### 4️⃣ Install & Run
-
-#### Install in Workspace
-
-Go to:
-
-```
-https://<YOUR_PUBLIC_URL>/slack/install
-```
-
-#### Local Testing
-
-```sh
-# Development (Socket Mode): requires SLACK_BOT_TOKEN and SLACK_APP_TOKEN in .env
-PYTHONPATH=./src poetry run python -m main.tablebeautifier.bot.run_dev
-
-# HTTP mode (for OAuth install flow): requires SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_SIGNING_SECRET
-poetry run gunicorn "main.tablebeautifier.bot.app:server" --chdir ./src
-```
-
----
-
-## 🧪 Testing
-
-Run the unit tests with Poetry:
-
-```sh
-poetry lock
-poetry install
-PYTHONPATH=. poetry run pytest -q
-```
-
-Notes:
-- Tests cover CSV/TSV/semicolon/pipe tables, headerless/index handling, multi-space delimited data, context preservation, large CSVs, and non-CSV false positives.
-- For very large messages (>250k chars), auto-detection is skipped. Use `/csv` or upload a file.
-
----
-
-## 📦 Data Directory
-
-The app uses `./data` for OAuth installation storage in production HTTP mode. Ensure it exists or is writable by the process:
-
-```sh
-mkdir -p data
-```
-
----
-
-## 🐞 Troubleshooting
-
-* **"Invalid Request URL" in Slack** → Ensure ngrok/host URL is publicly reachable and uses HTTPS.
-* **Tables not detected** → Check delimiter (commas, tabs, pipes, semicolons are supported).
-* **Bot not responding** → Confirm it’s installed in the channel and has correct scopes.
-
----
-
-## 📜 License
-
-MIT — see [LICENSE](LICENSE) for details.
+MIT — see LICENSE.[5]
