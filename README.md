@@ -1,5 +1,3 @@
-Here’s a clean, Confluence‑friendly README for “Tabulate” with the polished UI/UX of the older style, aligned to the current code and behavior. No external citations included.
-
 # Tabulate Slack Bot
 
 A Slack app that detects pasted tabular text (CSV/TSV/semicolon/pipe/multi‑space), cleans it, and posts a scrollable CSV snippet in the same conversation (channel, DM, thread). No manual formatting required.
