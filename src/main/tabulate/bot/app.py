@@ -1,4 +1,4 @@
-# /src/main/tablebeautifier/bot/app.py
+# /src/main/tabulate/bot/app.py
 
 import os
 import sys
@@ -15,7 +15,7 @@ from slack_sdk.oauth.state_store.file import FileOAuthStateStore
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))
 
 # Import the handler registration function
-from src.main.tablebeautifier.bot.handlers import register_handlers
+from src.main.tabulate.bot.handlers import register_handlers
 
 # --- Initialization ---
 load_dotenv()
@@ -79,5 +79,5 @@ def health_check():
     return {"status": "ok"}, 200
 
 if __name__ == "__main__":
-    logger.info("🤖 Table Beautifier bot (PROD) is starting...")
+    logger.info("🤖 Tabulate bot (PROD) is starting...")
     server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))

@@ -1,4 +1,4 @@
-from tablebeautifier.utils.table_formatter import TableFormatter
+from tabulate.utils.table_formatter import TableFormatter
 
 
 def test_plain_text_is_not_detected_as_table():

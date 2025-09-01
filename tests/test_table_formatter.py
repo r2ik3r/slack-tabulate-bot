@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import re
 
-from tablebeautifier.utils.table_formatter import TableFormatter
+from tabulate.utils.table_formatter import TableFormatter
 
 
 def _csv_to_df(csv_str: str) -> pd.DataFrame:

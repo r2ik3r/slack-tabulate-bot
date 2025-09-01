@@ -1,4 +1,4 @@
-# /src/main/tablebeautifier/bot/run_dev.py
+# /src/main/tabulate/bot/run_dev.py
 
 import os
 import sys
@@ -11,7 +11,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))
 
 # Import the handler registration function
-from src.main.tablebeautifier.bot.handlers import register_handlers
+from src.main.tabulate.bot.handlers import register_handlers
 
 # --- Initialization ---
 load_dotenv()
@@ -37,6 +37,6 @@ register_handlers(app)
 
 # --- Start the App in Socket Mode ---
 if __name__ == "__main__":
-    logger.info("🤖 Table Beautifier bot (DEV) is starting in Socket Mode...")
+    logger.info("🤖 Tabulate bot (DEV) is starting in Socket Mode...")
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     handler.start()

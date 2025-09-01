@@ -1,4 +1,4 @@
-# src/main/tablebeautifier/bot/handlers.py
+# src/main/tabulate/bot/handlers.py
 
 import re
 import logging
@@ -6,14 +6,14 @@ from io import StringIO
 import pandas as pd
 import time
 
-from tablebeautifier.utils.table_formatter import TableFormatter
+from tabulate.utils.table_formatter import TableFormatter
 
 logger = logging.getLogger(__name__)
 
-HELP_TEXT = """Hi there! I'm the Table Beautifier bot. 🤖 You can:
+HELP_TEXT = """Hi there! I'm the Tabulate bot. 🤖 You can:
 1. Paste table-like data (CSV, TSV, etc.) to automatically create a scrollable CSV snippet.
 2. Use the /csv command with your data to also create a CSV snippet.
-3. Mention me (`@Table Beautifier`) with your data to format it as a text-based table.
+3. Mention me (`@Tabulate`) with your data to format it as a text-based table.
 """
 
 formatter = TableFormatter()
@@ -31,7 +31,7 @@ def register_handlers(app):
     try:
         auth_resp = app.client.auth_test()
         bot_user_id = auth_resp.get("user_id")
-        logger.debug("Cached bot_user_id for TableBeautifier: %s", bot_user_id)
+        logger.debug("Cached bot_user_id for Tabulate: %s", bot_user_id)
     except Exception:
         logger.debug("Could not fetch bot_user_id at startup; will tolerate per-message checks.")
 
