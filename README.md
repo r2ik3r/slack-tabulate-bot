@@ -4,8 +4,6 @@ Here’s a clean, Confluence‑friendly README for “Tabulate” with the polis
 
 A Slack app that detects pasted tabular text (CSV/TSV/semicolon/pipe/multi‑space), cleans it, and posts a scrollable CSV snippet in the same conversation (channel, DM, thread). No manual formatting required.
 
-<img src="./docs/demo.png" alt="Tabulate in action" width="300" />
-
 ***
 
 ## ⚡ Quickstart (Under 60 Seconds)
