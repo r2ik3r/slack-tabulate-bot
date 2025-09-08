@@ -10,7 +10,7 @@ flowchart TD
   subgraph Slack
     A[User] -- "/csv, mention, paste" --> B[Slack Workspace]
   end
-  B -- Event/API --> C[Slack App (Tabulate)]
+  B -- Event/API --> C["Slack App (Tabulate)"]
   C -- Socket Mode or HTTP --> D[tabulate.bot.handlers]
   D -- Table Detection --> E[tabulate.utils.table_formatter]
   D -- CSV Snippet --> F[Slack API: files_upload]
