@@ -1,4 +1,4 @@
-# /src/main/tabulate/utils/table_formatter.py
+# /src/tabulate/utils/table_formatter.py
 
 import io
 import re

@@ -1,12 +1,12 @@
 [tool.poetry]
-name = "tabulate"
+name = "slack-tabulate-bot"
 version = "1.0.0"
 description = "A Slack bot that automatically finds, formats, and displays tabular data as a clean snippet."
 authors = ["Ravi Kumar <ravikumar.iitp@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 packages = [
-    { include = "tabulate", from = "src/main" }
+  { include = "tabulate", from = "src" }
 ]
 
 [tool.poetry.dependencies]

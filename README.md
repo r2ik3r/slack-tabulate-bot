@@ -2,6 +2,21 @@
 
 A Slack app that detects pasted tabular text (CSV/TSV/semicolon/pipe/multi‑space), cleans it, and posts a scrollable CSV snippet in the same conversation (channel, DM, thread). No manual formatting required.
 
+
+## 🗺️ Architecture Diagram
+
+```mermaid
+flowchart TD
+  subgraph Slack
+    A[User] -- "/csv, mention, paste" --> B[Slack Workspace]
+  end
+  B -- Event/API --> C[Slack App (Tabulate)]
+  C -- Socket Mode or HTTP --> D[tabulate.bot.handlers]
+  D -- Table Detection --> E[tabulate.utils.table_formatter]
+  D -- CSV Snippet --> F[Slack API: files_upload]
+  F -- Snippet Link --> B
+```
+
 ***
 
 ## ⚡ Quickstart (Under 60 Seconds)
@@ -27,7 +42,7 @@ SLACK_CLIENT_SECRET=...
 
 3) Run locally (Socket Mode)
 ```sh
-PYTHONPATH=./src poetry run python -m main.tabulate.bot.run_dev
+PYTHONPATH=./src poetry run python -m tabulate.bot.run_dev
 ```
 
 4) Expose HTTP (optional, for OAuth/events)
@@ -73,17 +88,16 @@ slack-tabulate-bot/
 ├── pyproject.toml
 ├── README.md
 └── src/
-    └── main/
-        └── tabulate/
-            ├── __init__.py
-            ├── bot/
-            │   ├── __init__.py
-            │   ├── app.py         # HTTP/OAuth server (Bolt + Flask)
-            │   ├── handlers.py    # /csv, app_mention, message; uploads & context
-            │   └── run_dev.py     # Socket Mode entry point
-            └── utils/
-                ├── __init__.py
-                └── table_formatter.py  # detection, parsing, CSV rendering
+  └── tabulate/
+    ├── __init__.py
+    ├── bot/
+    │   ├── __init__.py
+    │   ├── app.py         # HTTP/OAuth server (Bolt + Flask)
+    │   ├── handlers.py    # /csv, app_mention, message; uploads & context
+    │   └── run_dev.py     # Socket Mode entry point
+    └── utils/
+      ├── __init__.py
+      └── table_formatter.py  # detection, parsing, CSV rendering
 ```
 
 ***
@@ -122,7 +136,7 @@ Tabulate is a public Slack App using OAuth 2.0; a public HTTPS URL is required f
 - Deploy anywhere (Render/Railway/your infra).  
 - Start command:
 ```sh
-poetry run gunicorn "main.tabulate.bot.app:server" --chdir ./src
+poetry run gunicorn "tabulate.bot.app:server" --chdir ./src
 ```
 
 - Configure your Slack App:
@@ -179,11 +193,10 @@ https://<YOUR_PUBLIC_URL>/slack/install
 
 Local testing:
 ```sh
-# Socket Mode (no public URL needed)
-PYTHONPATH=./src poetry run python -m main.tabulate.bot.run_dev
+PYTHONPATH=./src poetry run python -m tabulate.bot.run_dev
 
 # HTTP mode (OAuth flow)
-poetry run gunicorn "main.tabulate.bot.app:server" --chdir ./src
+poetry run gunicorn "tabulate.bot.app:server" --chdir ./src
 ```
 
 ***

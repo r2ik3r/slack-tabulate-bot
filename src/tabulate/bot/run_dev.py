@@ -1,4 +1,4 @@
-# /src/main/tabulate/bot/run_dev.py
+# /src/tabulate/bot/run_dev.py
 
 import os
 import sys
@@ -11,7 +11,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))
 
 # Import the handler registration function
-from src.main.tabulate.bot.handlers import register_handlers
+from tabulate.bot.handlers import register_handlers
 
 # --- Initialization ---
 load_dotenv()
